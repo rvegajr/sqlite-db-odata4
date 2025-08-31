@@ -20,7 +20,11 @@
     "test:performance": "vitest run tests/integration/performance/",
     "clean": "npm run clean --workspaces && rm -rf node_modules",
     "lint": "eslint . --ext .ts",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "publish:packages": "npm publish --workspaces --access public",
+    "version:packages": "npm version patch --workspaces",
+    "demo:start": "cd examples/advanced-odata-demo && npm start",
+    "demo:test": "cd examples/advanced-odata-demo && npm test"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
