@@ -1,6 +1,6 @@
 {
   "name": "sqlite-db-odata4",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Complete OData v4 implementation for SQLite with advanced features including batch operations, delta links, full-text search, aggregations, and framework integrations",
   "repository": {
     "type": "git",
