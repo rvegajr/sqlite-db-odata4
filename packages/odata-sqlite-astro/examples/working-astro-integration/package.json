@@ -1,0 +1,21 @@
+{
+  "name": "astro-odata-example",
+  "version": "1.0.0",
+  "description": "Working example of OData v4 integration with Astro",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "astro": "^4.0.0",
+    "better-sqlite3": "^9.4.3",
+    "odata-sqlite-core": "^0.1.0",
+    "odata-sqlite-contracts": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8"
+  }
+}
