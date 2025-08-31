@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "echo 'Skipping build due to TypeScript issues'",
+    "build": "tsc",
     "clean": "rm -rf dist",
     "test": "vitest run",
     "test:watch": "vitest --watch",

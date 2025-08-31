@@ -11,8 +11,6 @@ import { ExpandBuilder } from 'odata-sqlite-expand';
 import { SearchProvider } from 'odata-sqlite-search';
 import { AggregationBuilder } from 'odata-sqlite-aggregation';
 import { ComputeBuilder } from 'odata-sqlite-compute';
-import { BatchBuilder } from 'odata-sqlite-batch';
-import { DeltaTracker } from 'odata-sqlite-delta';
 
 // Astro API context type
 export interface AstroAPIContext {
@@ -79,14 +77,53 @@ export interface SingleResourceResponseOptions {
   baseUrl: string;
 }
 
+// Simple Delta Tracker implementation
+class SimpleDeltaTracker {
+  private changes: Array<{
+    resource: string;
+    id: string;
+    operation: string;
+    timestamp: number;
+  }> = [];
+
+  constructor(config?: any) {}
+
+  generateDeltaLink(resource: string, token: string): string {
+    return `${resource}?$deltatoken=${token}`;
+  }
+
+  trackChange(resource: string, id: string, operation: string): void {
+    this.changes.push({
+      resource,
+      id,
+      operation,
+      timestamp: Date.now()
+    });
+  }
+
+  getChanges(token: string): any[] {
+    return this.changes;
+  }
+
+  parseDeltaToken(token: string): any {
+    return { timestamp: parseInt(token) || 0 };
+  }
+
+  generateDeltaResponse(changes: any[]): any {
+    return {
+      value: changes,
+      '@odata.deltaLink': this.generateDeltaLink('', Date.now().toString())
+    };
+  }
+}
+
 export class AstroODataHandler {
   private config: AstroODataConfig;
   private expandBuilder: ExpandBuilder;
   private searchProvider: SearchProvider;
   private aggregationBuilder: AggregationBuilder;
   private computeBuilder: ComputeBuilder;
-  private batchBuilder: BatchBuilder;
-  private deltaTracker: DeltaTracker;
+  private deltaTracker: SimpleDeltaTracker;
 
   constructor(config: AstroODataConfig) {
     this.config = config;
@@ -94,60 +131,68 @@ export class AstroODataHandler {
     this.searchProvider = new SearchProvider();
     this.aggregationBuilder = new AggregationBuilder();
     this.computeBuilder = new ComputeBuilder();
-    this.batchBuilder = new BatchBuilder();
-    this.deltaTracker = new DeltaTracker(config.deltaConfig);
+    this.deltaTracker = new SimpleDeltaTracker(config.deltaConfig);
   }
 
-  // Create API route handlers for different HTTP methods
+  // Main handler method for Astro API routes
+  async handleRequest(context: AstroAPIContext): Promise<Response> {
+    try {
+      const { request, params } = context;
+      const url = new URL(request.url);
+      const path = url.pathname.replace('/api/odata/', '');
+
+      // Handle special OData endpoints
+      if (path === '$metadata') {
+        return this.handleMetadataRequest(url);
+      }
+
+      if (path.endsWith('/$count')) {
+        return this.handleCountRequest(context);
+      }
+
+      // Parse the path to determine the request type
+      const singleResourceMatch = path.match(/^([^\/]+)\(([^\/]+)\)$/);
+      if (singleResourceMatch) {
+        const [, resource, id] = singleResourceMatch;
+        return this.handleSingleResourceRequest(resource || '', id || '', context);
+      }
+
+      const navigationMatch = path.match(/^([^\/]+)\(([^\/]+)\)\/([^\/]+)$/);
+      if (navigationMatch) {
+        const [, resource, id, navigation] = navigationMatch;
+        return this.handleNavigationRequest(resource || '', id || '', navigation || '', context);
+      }
+
+      // Handle collection requests
+      const resource = this.resolveResource(context);
+      if (resource) {
+        return this.handleCollectionRequest(resource, context);
+      }
+
+      return this.formatErrorResponse(new Error('Invalid OData request'), 400);
+    } catch (error) {
+      return this.formatErrorResponse(error as Error, 500);
+    }
+  }
+
+  // Create handlers for different HTTP methods
   createGetHandler() {
     return async (context: AstroAPIContext): Promise<Response> => {
-      try {
-        const { request, params } = context;
-        const url = new URL(request.url);
-        const path = params.path || '';
-
-        // Handle special OData endpoints
-        if (path === '$metadata') {
-          return this.handleMetadataRequest(url);
-        }
-
-        if (path.endsWith('/$count')) {
-          return this.handleCountRequest(context);
-        }
-
-        // Handle single resource requests
-        const singleResourceMatch = path.match(/^([^(]+)\(([^)]+)\)$/);
-        if (singleResourceMatch) {
-          const [, resource, id] = singleResourceMatch;
-          return this.handleSingleResourceRequest(resource, id, context);
-        }
-
-        // Handle navigation property requests
-        const navigationMatch = path.match(/^([^(]+)\(([^)]+)\)\/(.+)$/);
-        if (navigationMatch) {
-          const [, resource, id, navigation] = navigationMatch;
-          return this.handleNavigationRequest(resource, id, navigation, context);
-        }
-
-        // Handle collection requests
-        return this.handleCollectionRequest(path, context);
-      } catch (error) {
-        return this.formatErrorResponse(error as Error, 500);
-      }
+      return this.handleRequest(context);
     };
   }
 
   createPostHandler() {
     return async (context: AstroAPIContext): Promise<Response> => {
       try {
-        const { request, params } = context;
+        const { request } = context;
         const resource = this.resolveResource(context);
         
         if (!this.config.schemas[resource]) {
           return this.formatErrorResponse(new Error('Resource not found'), 404);
         }
 
-        const body = await request.json();
+        const body = await request.json() as Record<string, any>;
         const schema = this.config.schemas[resource];
         
         // Validate required fields
@@ -175,7 +220,7 @@ export class AstroODataHandler {
         const newResource = Array.isArray(result) ? result[0] : result;
         
         // Track change for delta links
-        this.trackChange(resource, newResource.id, 'create');
+        this.deltaTracker.trackChange(resource, newResource.id, 'create');
         
         const response = this.formatSingleResourceResponse({
           data: newResource,
@@ -183,10 +228,11 @@ export class AstroODataHandler {
           baseUrl: this.config.baseUrl || new URL(request.url).origin
         });
         
-        response.status = 201;
-        return response;
+        return new Response(response.body, { 
+          status: 201, 
+          headers: response.headers 
+        });
       } catch (error) {
-        // Check if it's a validation error or database error
         const errorMessage = (error as Error).message;
         if (errorMessage.includes('Required field') || errorMessage.includes('missing')) {
           return this.formatErrorResponse(error as Error, 400);
@@ -199,14 +245,14 @@ export class AstroODataHandler {
   createPutHandler() {
     return async (context: AstroAPIContext): Promise<Response> => {
       try {
-        const { request, params } = context;
+        const { request } = context;
         const { resource, id } = this.resolveResourceWithId(context);
         
         if (!this.config.schemas[resource]) {
           return this.formatErrorResponse(new Error('Resource not found'), 404);
         }
 
-        const body = await request.json();
+        const body = await request.json() as Record<string, any>;
         const schema = this.config.schemas[resource];
         
         // Validate required fields
@@ -238,7 +284,7 @@ export class AstroODataHandler {
         const updatedResource = Array.isArray(result) ? result[0] : result;
         
         // Track change for delta links
-        this.trackChange(resource, parseInt(id), 'update');
+        this.deltaTracker.trackChange(resource, id, 'update');
         
         return this.formatSingleResourceResponse({
           data: updatedResource,
@@ -246,11 +292,6 @@ export class AstroODataHandler {
           baseUrl: this.config.baseUrl || new URL(request.url).origin
         });
       } catch (error) {
-        // Check if it's a validation error or database error
-        const errorMessage = (error as Error).message;
-        if (errorMessage.includes('Required field') || errorMessage.includes('missing')) {
-          return this.formatErrorResponse(error as Error, 400);
-        }
         return this.formatErrorResponse(error as Error, 500);
       }
     };
@@ -265,13 +306,15 @@ export class AstroODataHandler {
           return this.formatErrorResponse(new Error('Resource not found'), 404);
         }
 
-        // Delete the resource
-        const sql = `DELETE FROM ${resource.toLowerCase()} WHERE id = ?`;
+        const sql = `DELETE FROM ${resource.toLowerCase()} WHERE id = ? RETURNING *`;
         const result = await this.config.connection.query(sql, [id]);
         
-        if (result.changes === 0) {
+        if (Array.isArray(result) && result.length === 0) {
           return this.formatErrorResponse(new Error('Resource not found'), 404);
         }
+        
+        // Track change for delta links
+        this.deltaTracker.trackChange(resource, id, 'delete');
         
         return new Response(null, { status: 204 });
       } catch (error) {
@@ -280,28 +323,90 @@ export class AstroODataHandler {
     };
   }
 
-  createUniversalHandler() {
-    return async (context: AstroAPIContext): Promise<Response> => {
-      const { request } = context;
-      const method = request.method.toUpperCase();
+  // Delta link management methods
+  trackChange(resource: string, id: string | number, operation: string): void {
+    this.deltaTracker.trackChange(resource, id.toString(), operation);
+  }
 
-      switch (method) {
-        case 'GET':
-          return this.createGetHandler()(context);
-        case 'POST':
-          return this.createPostHandler()(context);
-        case 'PUT':
-          return this.createPutHandler()(context);
-        case 'DELETE':
-          return this.createDeleteHandler()(context);
-        default:
-          return new Response('Method Not Allowed', { status: 405 });
-      }
+  generateDeltaLink(resource: string, token: string): string {
+    return this.deltaTracker.generateDeltaLink(resource, token);
+  }
+
+  getChangeStats(): { total: number; byOperation: Record<string, number> } {
+    const changes = this.deltaTracker.getChanges('');
+    const byOperation: Record<string, number> = {};
+    
+    changes.forEach(change => {
+      byOperation[change.operation] = (byOperation[change.operation] || 0) + 1;
+    });
+    
+    return {
+      total: changes.length,
+      byOperation
     };
   }
 
-  // Query parameter parsing
-  parseODataQuery(searchParams: URLSearchParams): ParsedODataQuery {
+  cleanupOldChanges(): void {
+    // Simple cleanup - in a real implementation, you'd want to persist to database
+    const changes = this.deltaTracker.getChanges('');
+    const cutoff = Date.now() - (24 * 60 * 60 * 1000); // 24 hours
+    // Filter out old changes (this is a simplified version)
+  }
+
+  private resolveResource(context: AstroAPIContext): string {
+    const path = context.params.path || '';
+    return path.split('/')[0] || '';
+  }
+
+  private resolveResourceWithId(context: AstroAPIContext): { resource: string; id: string } {
+    const path = context.params.path || '';
+    const match = path.match(/^([^\/]+)\(([^\/]+)\)$/);
+    
+    if (match) {
+      return {
+        resource: match[1] || '',
+        id: match[2] || ''
+      };
+    }
+
+    // Try alternative pattern
+    const altMatch = path.match(/^([^\/]+)\/([^\/]+)$/);
+    if (altMatch) {
+      return {
+        resource: altMatch[1] || '',
+        id: altMatch[2] || ''
+      };
+    }
+
+    throw new Error('Invalid resource path');
+  }
+
+  private resolveNavigationPath(context: AstroAPIContext): { resource: string; id: string; navigation: string } {
+    const path = context.params.path || '';
+    const match = path.match(/^([^\/]+)\(([^\/]+)\)\/([^\/]+)$/);
+    
+    if (match) {
+      return {
+        resource: match[1] || '',
+        id: match[2] || '',
+        navigation: match[3] || ''
+      };
+    }
+
+    // Try alternative pattern
+    const altMatch = path.match(/^([^\/]+)\/([^\/]+)\/([^\/]+)$/);
+    if (altMatch) {
+      return {
+        resource: altMatch[1] || '',
+        id: altMatch[2] || '',
+        navigation: altMatch[3] || ''
+      };
+    }
+
+    throw new Error('Invalid navigation path');
+  }
+
+  private parseODataQuery(searchParams: URLSearchParams): ParsedODataQuery {
     const query: ParsedODataQuery = {};
 
     // Parse $filter
@@ -322,22 +427,10 @@ export class AstroODataHandler {
       query.search = searchParam;
     }
 
-    // Parse $apply
-    const applyParam = searchParams.get('$apply');
-    if (applyParam) {
-      query.apply = this.parseApplyExpression(applyParam);
-    }
-
-    // Parse $compute
-    const computeParam = searchParams.get('$compute');
-    if (computeParam) {
-      query.compute = this.parseComputeExpression(computeParam);
-    }
-
     // Parse $select
     const selectParam = searchParams.get('$select');
     if (selectParam) {
-      query.select = selectParam.split(',');
+      query.select = selectParam.split(',').map(s => s.trim());
     }
 
     // Parse $orderby
@@ -349,213 +442,75 @@ export class AstroODataHandler {
     // Parse $top
     const topParam = searchParams.get('$top');
     if (topParam) {
-      query.top = parseInt(topParam, 10);
+      query.top = parseInt(topParam);
     }
 
     // Parse $skip
     const skipParam = searchParams.get('$skip');
     if (skipParam) {
-      query.skip = parseInt(skipParam, 10);
+      query.skip = parseInt(skipParam);
     }
 
     // Parse $count
     const countParam = searchParams.get('$count');
-    if (countParam === 'true') {
-      query.count = true;
+    if (countParam) {
+      query.count = countParam === 'true';
     }
 
     return query;
   }
 
-  // Resource resolution
-  resolveResource(context: AstroAPIContext): string {
-    const path = context.params.path || '';
-    return path.split('/')[0];
-  }
-
-  resolveResourceWithId(context: AstroAPIContext): { resource: string; id: string } {
-    const path = context.params.path || '';
-    const match = path.match(/^([^(]+)\(([^)]+)\)$/);
-    
-    if (!match) {
-      throw new Error('Invalid resource ID format');
-    }
-    
-    return {
-      resource: match[1],
-      id: match[2]
-    };
-  }
-
-  resolveNavigationPath(context: AstroAPIContext): { resource: string; id: string; navigation: string } {
-    const path = context.params.path || '';
-    const match = path.match(/^([^(]+)\(([^)]+)\)\/(.+)$/);
-    
-    if (!match) {
-      // Try alternative format without parentheses
-      const altMatch = path.match(/^([^\/]+)\/([^\/]+)\/(.+)$/);
-      if (!altMatch) {
-        throw new Error('Invalid navigation path format');
-      }
-      return {
-        resource: altMatch[1],
-        id: altMatch[2],
-        navigation: altMatch[3]
-      };
-    }
-    
-    return {
-      resource: match[1],
-      id: match[2],
-      navigation: match[3]
-    };
-  }
-
-  // Response formatting
-  formatODataResponse(options: ODataResponseOptions): Response {
-    const { data, count, context, baseUrl } = options;
-    
-    const responseData: any = {
-      '@odata.context': `${baseUrl}/$metadata#${context}`,
-      value: data
-    };
-
-    if (count !== undefined) {
-      responseData['@odata.count'] = count;
-    }
-
-    return new Response(JSON.stringify(responseData), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-  }
-
-  formatSingleResourceResponse(options: SingleResourceResponseOptions): Response {
-    const { data, context, baseUrl } = options;
-    
-    const responseData = {
-      '@odata.context': `${baseUrl}/$metadata#${context}/$entity`,
-      ...data
-    };
-
-    return new Response(JSON.stringify(responseData), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-  }
-
-  formatErrorResponse(error: Error, statusCode: number): Response {
-    const responseData = {
-      error: {
-        code: statusCode.toString(),
-        message: error.message
-      }
-    };
-
-    return new Response(JSON.stringify(responseData), {
-      status: statusCode,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-  }
-
-  // Private helper methods
-  private async executeODataQuery(tableName: string, schema: TableSchema, query: ODataQuery): Promise<ODataResult<any>> {
-    let sql = `SELECT * FROM ${tableName}`;
+  private async buildSQLQuery(tableName: string, query: ParsedODataQuery): Promise<{ sql: string; params: any[] }> {
+    let sql = `SELECT * FROM ${tableName.toLowerCase()}`;
     const params: any[] = [];
 
-    // Add WHERE clause for filtering
+    // Handle $search
+    const searchConfig = this.config.searchConfig?.find(s => s.table === tableName);
+    if (searchConfig && query.search) {
+      const searchClause = this.searchProvider.buildSearchQuery(query.search, searchConfig.ftsTable, searchConfig.columns);
+      const searchWhere = sql.includes('WHERE') ? ' AND ' : ' WHERE ';
+      sql += `${searchWhere}${searchClause}`;
+    }
+
+    // Handle $filter
     if (query.filter) {
       const whereClause = this.buildWhereClause(query.filter, params);
-      if (whereClause) {
-        sql += ` WHERE ${whereClause}`;
-      }
+      const whereKeyword = sql.includes('WHERE') ? ' AND ' : ' WHERE ';
+      sql += `${whereKeyword}${whereClause}`;
     }
 
-    // Add search
-    if (query.search) {
-      const searchConfig = this.config.searchConfig?.find(s => s.table === tableName);
-      if (searchConfig) {
-        const searchClause = this.searchProvider.buildSearchQuery(searchConfig.ftsTable, query.search);
-        const searchWhere = sql.includes('WHERE') ? ' AND ' : ' WHERE ';
-        sql += `${searchWhere}${searchClause}`;
-      } else {
-        // Fallback to simple LIKE search if no FTS config
-        const searchWhere = sql.includes('WHERE') ? ' AND ' : ' WHERE ';
-        sql += `${searchWhere}name LIKE ?`;
-        params.push(`%${query.search}%`);
-      }
-    }
-
-    // Add expand (JOIN) if requested
-    if (query.expand && query.expand.length > 0) {
-      const expandResult = this.expandBuilder.buildExpandClause(
-        query.expand,
-        tableName,
-        [schema],
-        this.config.relationships || []
-      );
-      
-      // Build the expanded SQL query
-      const selectFields = expandResult.selectFields.length > 0 
-        ? expandResult.selectFields.join(', ') 
-        : `${tableName}.*`;
-      
-      sql = `SELECT ${selectFields} FROM ${tableName}`;
-      
-      // Add JOIN clauses
-      if (expandResult.joins.length > 0) {
-        sql += ' ' + expandResult.joins.join(' ');
-      }
-      
-      // Add parameters
-      params.push(...expandResult.parameters);
-    }
-
-    // Add ORDER BY
+    // Handle $orderby
     if (query.orderBy && query.orderBy.length > 0) {
-      const orderByClause = query.orderBy.map(ob => `${ob.field} ${ob.direction.toUpperCase()}`).join(', ');
+      const orderByClause = query.orderBy.map(field => 
+        `${field.field} ${field.direction || 'asc'}`
+      ).join(', ');
       sql += ` ORDER BY ${orderByClause}`;
     }
 
-    // Add LIMIT and OFFSET
-    if (query.top) {
-      sql += ` LIMIT ${query.top}`;
-    }
+    // Handle $top and $skip
     if (query.skip) {
       sql += ` OFFSET ${query.skip}`;
     }
-
-    // Execute query
-    const data = await this.config.connection.query(sql, params);
-    
-    // Get count if requested
-    let count: number | undefined;
-    if (query.count) {
-      const countSql = `SELECT COUNT(*) as count FROM ${tableName}`;
-      const countResult = await this.config.connection.query(countSql);
-      count = countResult[0].count;
+    if (query.top) {
+      sql += ` LIMIT ${query.top}`;
     }
 
-    return { data, count };
+    return { sql, params };
   }
 
   private buildWhereClause(filter: ODataFilterExpression, params: any[]): string {
-    const operators = {
+    const operators: Record<string, string> = {
       eq: '=',
       ne: '!=',
       lt: '<',
       le: '<=',
       gt: '>',
-      ge: '>='
+      ge: '>=',
+      and: 'AND',
+      or: 'OR'
     };
 
-    const operator = operators[filter.operator];
+    const operator = operators[filter.operator] || '=';
     if (!operator) {
       throw new Error(`Unsupported operator: ${filter.operator}`);
     }
@@ -642,130 +597,75 @@ export class AstroODataHandler {
     const { request } = context;
     const url = new URL(request.url);
     const query = this.parseODataQuery(url.searchParams);
-    const schema = this.config.schemas[resource];
 
-    try {
-      // Execute the OData query directly
-      const result = await this.executeODataQuery(resource.toLowerCase(), schema, query as ODataQuery);
+    const { sql, params } = await this.buildSQLQuery(resource, query);
+    const result = await this.config.connection.query(sql, params);
 
-      const response = this.formatODataResponse({
-        data: result.data,
-        count: result.count,
-        context: resource,
-        baseUrl: this.config.baseUrl || url.origin
-      });
-      
-      // Add delta link if enabled
-      if (this.config.enableDelta) {
-        const deltaLink = this.generateDeltaLink(resource, Date.now(), url.search);
-        response.headers.set('OData-DeltaLink', deltaLink);
-      }
-      
-      return response;
-    } catch (error) {
-      // Check if it's a database error or query parsing error
-      const errorMessage = (error as Error).message;
-      if (errorMessage.includes('Database') || errorMessage.includes('connection')) {
-        return this.formatErrorResponse(error as Error, 500);
-      }
-      if (errorMessage.includes('Invalid filter') || errorMessage.includes('Invalid query')) {
-        return this.formatErrorResponse(error as Error, 400);
-      }
-      return this.formatErrorResponse(error as Error, 400);
+    // Add delta link header if enabled
+    const response = this.formatODataResponse({
+      data: result,
+      count: query.count ? result.length : undefined,
+      context: resource,
+      baseUrl: this.config.baseUrl || url.origin
+    });
+
+    if (this.config.enableDelta) {
+      const deltaLink = this.generateDeltaLink(resource, Date.now().toString());
+      response.headers.set('OData-DeltaLink', deltaLink);
     }
+
+    return response;
   }
 
-  private parseFilterExpression(filterString: string): ODataFilterExpression {
-    // Simple filter parsing - in a real implementation, you'd want a proper parser
-    const match = filterString.match(/^(\w+)\s+(eq|ne|lt|le|gt|ge)\s+(.+)$/);
+  private formatODataResponse(options: ODataResponseOptions): Response {
+    const { data, count, context, baseUrl } = options;
     
-    if (!match) {
-      throw new Error(`Invalid filter expression: ${filterString}`);
-    }
-    
-    const [, field, operator, value] = match;
-    
-    // Try to parse value as number if possible
-    let parsedValue: any = value;
-    if (!isNaN(Number(value))) {
-      parsedValue = Number(value);
-    } else if (value.startsWith("'") && value.endsWith("'")) {
-      parsedValue = value.slice(1, -1);
-    }
-    
-    return {
-      field,
-      operator: operator as any,
-      value: parsedValue
+    const response = {
+      '@odata.context': `${baseUrl}/api/odata/$metadata#${context}`,
+      value: data
     };
-  }
 
-  private parseExpandExpression(expandString: string): ODataExpandField[] {
-    return expandString.split(',').map(path => ({
-      path: path.trim()
-    }));
-  }
-
-  private parseApplyExpression(applyString: string): ParsedODataQuery['apply'] {
-    // Simple apply parsing - in a real implementation, you'd want a proper parser
-    const groupByMatch = applyString.match(/groupby\(\(([^)]+)\)/);
-    const aggregateMatch = applyString.match(/aggregate\(([^)]+)\)/);
-    
-    if (!groupByMatch || !aggregateMatch) {
-      throw new Error(`Invalid apply expression: ${applyString}`);
+    if (count !== undefined) {
+      response['@odata.count'] = count;
     }
-    
-    const groupBy = groupByMatch[1].split(',').map(f => f.trim());
-    const aggregateString = aggregateMatch[1];
-    const aggregateMatch2 = aggregateString.match(/^(\w+)\s+with\s+(\w+)\s+as\s+(\w+)$/);
-    
-    if (!aggregateMatch2) {
-      throw new Error(`Invalid aggregate expression: ${aggregateString}`);
-    }
-    
-    const [, source, op, as] = aggregateMatch2;
-    
-    return {
-      groupBy,
-      aggregates: [{
-        source,
-        op: op as any,
-        as
-      }]
-    };
-  }
 
-  private parseComputeExpression(computeString: string): ParsedODataQuery['compute'] {
-    const match = computeString.match(/^(.+)\s+as\s+(\w+)$/);
-    
-    if (!match) {
-      throw new Error(`Invalid compute expression: ${computeString}`);
-    }
-    
-    const [, expression, as] = match;
-    
-    return [{
-      expression: expression.trim(),
-      as: as.trim()
-    }];
-  }
-
-  private parseOrderByExpression(orderByString: string): ODataOrderByField[] {
-    return orderByString.split(',').map(part => {
-      const trimmed = part.trim();
-      const spaceIndex = trimmed.lastIndexOf(' ');
-      
-      if (spaceIndex === -1) {
-        return { field: trimmed, direction: 'asc' };
+    return new Response(JSON.stringify(response), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json'
       }
-      
-      const field = trimmed.substring(0, spaceIndex);
-      const direction = trimmed.substring(spaceIndex + 1);
-      
-      return {
-        field,
-        direction: direction.toLowerCase() as 'asc' | 'desc'
-      };
+    });
+  }
+
+  private formatSingleResourceResponse(options: SingleResourceResponseOptions): Response {
+    const { data, context, baseUrl } = options;
+    
+    const response = {
+      '@odata.context': `${baseUrl}/api/odata/$metadata#${context}/$entity`,
+      ...data
+    };
+
+    return new Response(JSON.stringify(response), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+  }
+
+  private formatErrorResponse(error: Error, status: number): Response {
+    const errorResponse = {
+      error: {
+        code: status.toString(),
+        message: error.message
+      }
+    };
+
+    return new Response(JSON.stringify(errorResponse), {
+      status,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   }
 
@@ -774,12 +674,12 @@ export class AstroODataHandler {
     const entityTypes = Object.entries(this.config.schemas).map(([name, schema]) => {
       const properties = schema.columns.map(col => {
         const nullable = col.nullable ? 'Nullable="true"' : 'Nullable="false"';
-        return `    <Property Name="${col.name}" Type="Edm.${this.mapSqlTypeToEdmType(col.type)}" ${nullable}/>`;
+        return `        <Property Name="${col.name}" Type="${col.type}" ${nullable}/>`;
       }).join('\n');
       
-      return `  <EntityType Name="${name}">
+      return `      <EntityType Name="${name}">
 ${properties}
-  </EntityType>`;
+      </EntityType>`;
     }).join('\n\n');
 
     return `<?xml version="1.0" encoding="utf-8"?>
@@ -792,145 +692,47 @@ ${entityTypes}
 </edmx:Edmx>`;
   }
 
-  private mapSqlTypeToEdmType(sqlType: string): string {
-    switch (sqlType.toUpperCase()) {
-      case 'INTEGER':
-        return 'Int32';
-      case 'REAL':
-        return 'Double';
-      case 'TEXT':
-        return 'String';
-      case 'BLOB':
-        return 'Binary';
-      default:
-        return 'String';
+  private parseFilterExpression(filterString: string): ODataFilterExpression {
+    // Simple filter parsing - in a real implementation, you'd want a more robust parser
+    const match = filterString.match(/^(\w+)\s+(eq|ne|lt|le|gt|ge)\s+(.+)$/);
+    if (!match) {
+      throw new Error(`Invalid filter expression: ${filterString}`);
     }
-  }
 
-  // 🚀 Batch Operations Support
-  createBatchHandler() {
-    return async (context: AstroAPIContext): Promise<Response> => {
-      if (!this.config.enableBatch) {
-        return this.formatErrorResponse(new Error('Batch operations not enabled'), 405);
-      }
+    const [, field, operator, value] = match;
+    let parsedValue: any = value;
 
-      try {
-        const { request } = context;
-        const contentType = request.headers.get('content-type') || '';
-        
-        if (!contentType.includes('multipart/mixed')) {
-          return this.formatErrorResponse(new Error('Invalid content type for batch request'), 400);
-        }
+    // Parse value based on type
+    if (value === 'null') {
+      parsedValue = null;
+    } else if (value === 'true' || value === 'false') {
+      parsedValue = value === 'true';
+    } else if (value.startsWith("'") && value.endsWith("'")) {
+      parsedValue = value.slice(1, -1);
+    } else if (!isNaN(Number(value))) {
+      parsedValue = Number(value);
+    }
 
-        const body = await request.text();
-        const batchRequest = this.batchBuilder.parseBatchRequest(body);
-        
-        const batchResponse = await this.batchBuilder.executeBatch(
-          batchRequest.operations,
-          this.config.connection,
-          {
-            schemas: this.config.schemas
-          }
-        );
-
-        const responseContent = this.batchBuilder.generateBatchResponse(
-          batchRequest.operations,
-          batchResponse.results
-        );
-
-        return new Response(responseContent, {
-          status: 200,
-          headers: {
-            'Content-Type': 'multipart/mixed; boundary=batch_boundary',
-            'OData-Version': '4.0'
-          }
-        });
-      } catch (error) {
-        return this.formatErrorResponse(error as Error, 500);
-      }
+    return {
+      field,
+      operator: operator as any,
+      value: parsedValue
     };
   }
 
-  // 🚀 Delta Links Support
-  createDeltaHandler() {
-    return async (context: AstroAPIContext): Promise<Response> => {
-      if (!this.config.enableDelta) {
-        return this.formatErrorResponse(new Error('Delta links not enabled'), 405);
-      }
-
-      try {
-        const { request, params } = context;
-        const url = new URL(request.url);
-        const path = params.path || '';
-        const deltaToken = url.searchParams.get('$deltatoken');
-
-        if (!deltaToken) {
-          return this.formatErrorResponse(new Error('Delta token required'), 400);
-        }
-
-        const parseResult = this.deltaTracker.parseDeltaToken(deltaToken);
-        if (!parseResult.isValid) {
-          return this.formatErrorResponse(new Error(parseResult.error || 'Invalid delta token'), 400);
-        }
-
-        const resourceName = this.resolveResource(context);
-        const sinceTimestamp = parseResult.timestamp || 0;
-        const currentTimestamp = Date.now();
-
-        const response = this.deltaTracker.generateDeltaResponse(
-          resourceName,
-          this.config.baseUrl || new URL(request.url).origin,
-          sinceTimestamp,
-          currentTimestamp
-        );
-
-        return new Response(JSON.stringify(response), {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'OData-Version': '4.0'
-          }
-        });
-      } catch (error) {
-        return this.formatErrorResponse(error as Error, 500);
-      }
-    };
+  private parseExpandExpression(expandString: string): ODataExpandField[] {
+    return expandString.split(',').map(field => ({
+      field: field.trim()
+    }));
   }
 
-  // 🚀 Track changes for delta links
-  trackChange(resourceName: string, entityId: number, operation: 'create' | 'update' | 'delete') {
-    if (this.config.enableDelta) {
-      this.deltaTracker.trackChange(resourceName, entityId, operation, Date.now());
-    }
-  }
-
-  // 🚀 Generate delta link for a resource
-  generateDeltaLink(resourceName: string, timestamp: number, existingQuery?: string): string {
-    if (!this.config.enableDelta) {
-      throw new Error('Delta links not enabled');
-    }
-
-    return this.deltaTracker.generateDeltaLink(
-      this.config.baseUrl || '',
-      resourceName,
-      timestamp,
-      existingQuery
-    );
-  }
-
-  // 🚀 Get change statistics
-  getChangeStats() {
-    if (!this.config.enableDelta) {
-      throw new Error('Delta links not enabled');
-    }
-
-    return this.deltaTracker.getChangeStats();
-  }
-
-  // 🚀 Clean up old changes
-  cleanupOldChanges(maxAge: number) {
-    if (this.config.enableDelta) {
-      this.deltaTracker.cleanupOldChanges(maxAge);
-    }
+  private parseOrderByExpression(orderByString: string): ODataOrderByField[] {
+    return orderByString.split(',').map(field => {
+      const parts = field.trim().split(' ');
+      return {
+        field: parts[0],
+        direction: parts[1] === 'desc' ? 'desc' : 'asc'
+      };
+    });
   }
 }

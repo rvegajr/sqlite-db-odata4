@@ -1,30 +1,38 @@
-export { AstroODataHandler } from './astro-odata-handler';
+import { AstroODataHandler } from './astro-odata-handler';
+import type { 
+  AstroAPIContext, 
+  AstroODataConfig, 
+  ParsedODataQuery, 
+  ODataResponseOptions, 
+  SingleResourceResponseOptions 
+} from './astro-odata-handler';
+
+export { AstroODataHandler };
 export type { 
   AstroAPIContext, 
   AstroODataConfig, 
-  ParsedODataQuery,
-  ODataResponseOptions,
-  SingleResourceResponseOptions
-} from './astro-odata-handler';
+  ParsedODataQuery, 
+  ODataResponseOptions, 
+  SingleResourceResponseOptions 
+};
 
-// Convenience function for easy setup
+// Convenience functions for creating handlers
 export function createODataHandler(config: AstroODataConfig) {
   return new AstroODataHandler(config);
 }
 
-// Convenience function for creating universal handler
 export function createUniversalODataHandler(config: AstroODataConfig) {
   const handler = new AstroODataHandler(config);
-  return handler.createUniversalHandler();
+  return handler.handleRequest.bind(handler);
 }
 
-// Convenience function for creating individual handlers
 export function createODataHandlers(config: AstroODataConfig) {
   const handler = new AstroODataHandler(config);
   return {
-    GET: handler.createGetHandler(),
-    POST: handler.createPostHandler(),
-    PUT: handler.createPutHandler(),
-    DELETE: handler.createDeleteHandler()
+    get: handler.createGetHandler(),
+    post: handler.createPostHandler(),
+    put: handler.createPutHandler(),
+    delete: handler.createDeleteHandler(),
+    universal: handler.handleRequest.bind(handler)
   };
 }
