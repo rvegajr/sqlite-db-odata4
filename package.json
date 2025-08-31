@@ -4,9 +4,9 @@
   "description": "Complete OData v4 implementation for SQLite with advanced features including batch operations, delta links, full-text search, aggregations, and framework integrations",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/sqlite-db-odata4.git"
+    "url": "https://github.com/rvegajr/sqlite-db-odata4.git"
   },
-  "homepage": "https://github.com/your-username/sqlite-db-odata4#readme",
+  "homepage": "https://github.com/rvegajr/sqlite-db-odata4#readme",
   "workspaces": [
     "packages/*"
   ],
