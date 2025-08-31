@@ -1,0 +1,46 @@
+{
+  "name": "odata-sqlite-express",
+  "version": "0.1.0",
+  "description": "OData v4 Express integration for SQLite - Easy OData v4 API endpoints with Express.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "odata-sqlite-contracts": "^0.1.0",
+    "odata-sqlite-core": "^0.1.0",
+    "odata-sqlite-expand": "^0.1.0",
+    "odata-sqlite-search": "^0.1.0",
+    "odata-sqlite-aggregation": "^0.1.0",
+    "odata-sqlite-compute": "^0.1.0",
+    "express": "^4.18.0"
+  },
+  "devDependencies": {
+    "vitest": "^1.0.0",
+    "typescript": "^5.0.0",
+    "@types/express": "^4.17.0",
+    "@types/node": "^20.0.0",
+    "supertest": "^6.3.0"
+  },
+  "peerDependencies": {
+    "express": "^4.18.0"
+  },
+  "keywords": [
+    "odata",
+    "odata4",
+    "sqlite",
+    "express",
+    "api",
+    "rest",
+    "integration",
+    "tdd",
+    "isp"
+  ],
+  "author": "The Happiest Software Engineer in the Universe",
+  "license": "MIT"
+}

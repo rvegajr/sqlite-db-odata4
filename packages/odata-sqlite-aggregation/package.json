@@ -1,0 +1,33 @@
+{
+  "name": "odata-sqlite-aggregation",
+  "version": "0.1.0",
+  "description": "OData v4 $apply functionality for SQLite - Aggregations and GROUP BY with TDD",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "odata-sqlite-contracts": "^0.1.0"
+  },
+  "devDependencies": {
+    "vitest": "^1.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "odata",
+    "odata4",
+    "sqlite",
+    "aggregation",
+    "groupby",
+    "apply",
+    "tdd",
+    "isp"
+  ],
+  "author": "The Happiest Software Engineer in the Universe",
+  "license": "MIT"
+}

@@ -1,0 +1,25 @@
+{
+  "name": "odata-astro-example",
+  "type": "module",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "astro": "^4.0.0",
+    "odata-sqlite-astro": "file:../../",
+    "odata-sqlite-core": "file:../../../odata-sqlite-core",
+    "odata-sqlite-contracts": "file:../../../odata-sqlite-contracts",
+    "odata-sqlite-expand": "file:../../../odata-sqlite-expand",
+    "odata-sqlite-search": "file:../../../odata-sqlite-search",
+    "odata-sqlite-aggregation": "file:../../../odata-sqlite-aggregation",
+    "odata-sqlite-compute": "file:../../../odata-sqlite-compute"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}

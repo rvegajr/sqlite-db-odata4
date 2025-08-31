@@ -1,0 +1,30 @@
+{
+  "name": "odata-sqlite-delta",
+  "version": "0.1.0",
+  "description": "OData v4 Delta Links for Change Tracking",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "odata-sqlite-contracts": "^0.1.0",
+    "odata-sqlite-core": "^0.1.0"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.1",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "odata",
+    "sqlite",
+    "delta",
+    "change-tracking",
+    "v4"
+  ],
+  "author": "The Happiest Software Engineer in the Universe",
+  "license": "MIT"
+}

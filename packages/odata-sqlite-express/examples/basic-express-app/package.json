@@ -1,0 +1,27 @@
+{
+  "name": "odata-express-example",
+  "version": "1.0.0",
+  "description": "Basic Express.js example for OData v4 SQLite integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "odata-sqlite-express": "file:../../"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  },
+  "keywords": [
+    "odata",
+    "odata4",
+    "sqlite",
+    "express",
+    "api",
+    "example"
+  ],
+  "author": "The Happiest Software Engineer in the Universe",
+  "license": "MIT"
+}

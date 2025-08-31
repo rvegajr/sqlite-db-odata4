@@ -1,0 +1,35 @@
+{
+  "name": "odata-sqlite-contracts",
+  "version": "0.1.0",
+  "description": "Interfaces and types for SQLite OData v4 implementation (zero dependencies)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  },
+  "keywords": [
+    "odata",
+    "sqlite",
+    "contracts",
+    "interfaces",
+    "types"
+  ],
+  "license": "MIT"
+}

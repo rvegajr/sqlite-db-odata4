@@ -1,0 +1,49 @@
+{
+  "name": "sqlite-db-odata4",
+  "version": "0.1.0",
+  "description": "Complete OData v4 implementation for SQLite with advanced features including batch operations, delta links, full-text search, aggregations, and framework integrations",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/sqlite-db-odata4.git"
+  },
+  "homepage": "https://github.com/your-username/sqlite-db-odata4#readme",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "vitest run",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest run --coverage",
+    "test:real-world": "tsx tests/run-real-world-tests.ts",
+    "test:integration": "vitest run tests/integration/",
+    "test:performance": "vitest run tests/integration/performance/",
+    "clean": "npm run clean --workspaces && rm -rf node_modules",
+    "lint": "eslint . --ext .ts",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "tsx": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "odata",
+    "odata4",
+    "sqlite",
+    "turso",
+    "libsql",
+    "rest",
+    "api"
+  ],
+  "author": "The Happiest Software Engineer in the Universe",
+  "license": "MIT"
+}

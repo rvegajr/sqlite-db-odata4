@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "outDir": "./dist",
+    "rootDir": "."
+  },
+  "references": [
+    { "path": "./packages/odata-sqlite-contracts" },
+    { "path": "./packages/odata-sqlite-core" },
+    { "path": "./packages/odata-sqlite-express" }
+  ],
+  "include": [
+    "packages/*/src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "packages/*/dist",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "name": "odata-sqlite-core",
+  "version": "0.1.0",
+  "description": "Core OData v4 to SQLite query builder and executor",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest --watch"
+  },
+  "dependencies": {
+    "odata-sqlite-contracts": "^0.1.0",
+    "better-sqlite3": "^9.0.0",
+    "@libsql/client": "^0.5.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  },
+  "keywords": [
+    "odata",
+    "sqlite",
+    "turso",
+    "libsql",
+    "query-builder"
+  ],
+  "license": "MIT"
+}
